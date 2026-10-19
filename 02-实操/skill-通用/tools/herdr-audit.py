@@ -3,23 +3,23 @@
 """herdr-audit.py — 只读审计指定 Herdr 工作区是否符合编排规范。
 
 只读：仅调用 `herdr api snapshot`（一次）与 `herdr pane read --source visible`
-（仅对「名含 plan」的统筹逐个读一次），不 prompt / send-keys / resize / zoom /
+（仅对「名含 plan」的策划逐个读一次），不 prompt / send-keys / resize / zoom /
 rename / close / move，不动任何 pane / tab / workspace。
 
 审计四项（对应验收标准）：
   a 命名：agent 名须匹配 [a-z][a-z0-9_-]{0,31} 且为 <dept>-<name>-<kind>，
          dept ∈ {qa,dev,ops,data,pm,fin,buy,wh,mfg,cus}，
          kind ∈ {claude,codex,opencode}（pi/omp/qodercli 已停用，2026-10-18）；
-         协议例外：名字为 main 不检查；未命名 agent（无 name 字段）不检查；
+         协议例外：名字为 secretary 不检查；未命名 agent（无 name 字段）不检查；
          shell pane（无 agent）不检查。
   b 尺寸：每个 pane 的 layout.rect（含边框）须 ≥ 60 列 × 15 行。
-  c 容量：主视角 tab（标签含「主视角」）≤4 个 pane（1 main + 3 统筹），其它 tab ≤6 个 pane
+  c 容量：秘书 tab（标签含「秘书」）≤4 个 pane（1 secretary + 3 策划），其它 tab ≤6 个 pane
          （与 SKILL.md §5.2.1 的「1 + 3」一致。）
-  d 模型：名含「plan」的统筹须为 codex 或 claude Fable；
-         Opus / Sonnet / Haiku / DeepSeek-Flash 违规；codex 也须有模型状态行证据。
+  d 模型：名含「plan」的策划须为 codex 或 claude Fable；名含「group」的组长须为
+         claude Fable 或 opencode DeepSeek V4 Pro；Opus/Sonnet/Haiku/DeepSeek-Flash 违规。
 
 模型只从 pane「当前状态栏」提取（按各 kind 的固定格式锚定），聊天历史里出现的
-模型示例一律不认；读不到 / 不认识 → 对统筹即违规（不假通过）。
+模型示例一律不认；读不到 / 不认识 → 对策划即违规（不假通过）。
 
 尺寸/容量依赖 layout.rect：每个 pane 必须存在于某 layout 且 width/height 为完整整数，
 否则按采集错误报出（exit 1），不静默跳过、不假通过。
@@ -45,15 +45,17 @@ DEPTS = {"qa", "dev", "ops", "data", "pm", "fin", "buy", "wh", "mfg", "cus"}
 # 可派活的 kind（协议固定：SKILL.md §3.4）。pi/omp/qodercli 已于 2026-10-18 停用
 # —— 起它们也算违规，故不在此集合内。解析器仍保留（见 extract_model），只影响展示不影响判定。
 KINDS = {"claude", "codex", "opencode"}
-# 统筹允许的 kind（验收标准 d）
+# 策划允许的 kind（验收标准 d）
 PLANNER_KINDS = {"codex", "claude"}
+# 组长允许的 kind（验收标准 d，DS 档）
+GROUP_KINDS = {"claude", "opencode"}
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
-NAME_RULE = "agent 名须匹配 [a-z][a-z0-9_-]{0,31} 且为 <dept>-<name>-<kind>（dept∈10 部门短码，kind∈claude/codex/opencode；main 例外）"
+NAME_RULE = "agent 名须匹配 [a-z][a-z0-9_-]{0,31} 且为 <dept>-<name>-<kind>（dept∈10 部门短码，kind∈claude/codex/opencode；secretary 例外）"
 SIZE_RULE = "每个 pane 的 layout.rect 须 ≥ {} 列 × {} 行".format(MIN_COLS, MIN_ROWS)
-CAPACITY_RULE = "主视角 tab（标签含「主视角」）≤4 个 pane（1 main + 3 统筹），其它 tab ≤6 个 pane"
-MODEL_RULE = "统筹（名含 plan）须为 codex 或 claude Fable（deepseek-v4-pro）；Opus/Sonnet/Haiku/DeepSeek-Flash 违规"
+CAPACITY_RULE = "秘书 tab（标签含「秘书」）≤4 个 pane（1 secretary + 3 策划），其它 tab ≤6 个 pane"
+MODEL_RULE = "策划（名含 plan）须为 codex 或 claude Fable；组长（名含 group）须为 claude Fable 或 opencode DeepSeek V4 Pro；Opus/Sonnet/Haiku/DeepSeek-Flash 违规"
 COLLECT_RULE = "每个 pane 必须有完整整数尺寸（layout.rect.width/height 为整数，且 pane 必须存在于某个 layout 中）"
 
 CATEGORY_ORDER = ["采集错误", "命名", "尺寸", "容量", "模型"]
@@ -279,25 +281,49 @@ def check_name(name):
 def check_planner(kind, name, model):
     """返回 None=合规，否则返回违规原因（字符串）。model 为 None 表示 pane 读取失败。"""
     if kind not in PLANNER_KINDS:
-        return "统筹 kind 须为 codex 或 claude，实际 kind={}，模型={}".format(
+        return "策划 kind 须为 codex 或 claude，实际 kind={}，模型={}".format(
             kind or "未知", "读取失败" if model is None else model
         )
     if kind == "codex":
         if model is None:
-            return "codex 统筹缺模型状态证据（pane 读取失败）"
+            return "codex 策划缺模型状态证据（pane 读取失败）"
         if not str(model).startswith("GPT"):
-            return "codex 统筹须有模型状态证据（GPT-…），实际 {}".format(model)
+            return "codex 策划须有模型状态证据（GPT-…），实际 {}".format(model)
         return None
     # kind == "claude"
     if model is None:
-        return "claude 统筹模型状态行读取失败，无法确认是否为 Fable"
+        return "claude 策划模型状态行读取失败，无法确认是否为 Fable"
     if str(model).startswith("Fable"):
         return None
-    return "claude 统筹须为 Fable（deepseek-v4-pro），实际 {}".format(model)
+    return "claude 策划须为 Fable（deepseek-v4-pro），实际 {}".format(model)
+
+
+def check_group(kind, name, model):
+    """组长（组级）模型校验：claude 须 Fable，opencode 须 DeepSeek V4 Pro。"""
+    if kind not in GROUP_KINDS:
+        return "组长 kind 须为 claude 或 opencode，实际 kind={}，模型={}".format(
+            kind or "未知", "读取失败" if model is None else model
+        )
+    if kind == "claude":
+        if model is None:
+            return "claude 组长模型状态行读取失败，无法确认是否为 Fable"
+        if str(model).startswith("Fable"):
+            return None
+        return "claude 组长须为 Fable（deepseek-v4-pro），实际 {}".format(model)
+    # kind == "opencode"
+    if model is None:
+        return "opencode 组长模型状态行读取失败，无法确认是否为 DeepSeek V4 Pro"
+    if "DeepSeek V4 Pro" in str(model):
+        return None
+    return "opencode 组长须为 DeepSeek V4 Pro，实际 {}".format(model)
 
 
 def _is_planner(name):
     return bool(name) and "plan" in name
+
+
+def _is_group(name):
+    return bool(name) and "group" in name
 
 
 def _valid_dim(v):
@@ -401,7 +427,7 @@ def audit_workspace(snapshot, workspace_id, model_reader):
         name = a.get("name")
         tab = _tab_str(pid)
 
-        if name and name != "main":  # 未命名不检查；main 例外
+        if name and name != "secretary":  # 未命名不检查；secretary 例外
             reason = check_name(name)
             if reason:
                 findings.append(_finding("命名", tab, pid, name, NAME_RULE, "{}：{}".format(name, reason)))
@@ -409,6 +435,11 @@ def audit_workspace(snapshot, workspace_id, model_reader):
         if _is_planner(name):
             model = model_reader(pid, kind)
             reason = check_planner(kind, name, model)
+            if reason:
+                findings.append(_finding("模型", tab, pid, name, MODEL_RULE, reason))
+        elif _is_group(name):
+            model = model_reader(pid, kind)
+            reason = check_group(kind, name, model)
             if reason:
                 findings.append(_finding("模型", tab, pid, name, MODEL_RULE, reason))
 
@@ -444,7 +475,7 @@ def audit_workspace(snapshot, workspace_id, model_reader):
             lp.get("pane_id") for lp in lay.get("panes", []) if lp.get("pane_id")
         ))
         count = len(pane_ids)
-        limit = 4 if "主视角" in label else 6
+        limit = 4 if "秘书" in label else 6
         if count > limit:
             findings.append(_finding(
                 "容量",
@@ -528,6 +559,26 @@ def selftest():
             fails += 1
             print("FAIL check_planner({!r}, {!r}) = {!r} 期望含 {!r}".format(kind, model, got, expect))
 
+    # check_group
+    group_cases = [
+        ("claude", "Fable 5", None),
+        ("claude", "Opus 5", "Fable"),
+        ("claude", "未知", "Fable"),
+        ("claude", None, "读取失败"),
+        ("opencode", "DeepSeek V4 Pro", None),
+        ("opencode", "Nemotron 3.5 Super VL Free", "DeepSeek V4 Pro"),
+        ("opencode", None, "读取失败"),
+        ("codex", "GPT-6.1-Sol low", "claude 或 opencode"),
+    ]
+    for kind, model, expect in group_cases:
+        got = check_group(kind, "x-group-x", model)
+        if (got is None) != (expect is None):
+            fails += 1
+            print("FAIL check_group({!r}, {!r}) = {!r}".format(kind, model, got))
+        elif expect is not None and expect not in got:
+            fails += 1
+            print("FAIL check_group({!r}, {!r}) = {!r} 期望含 {!r}".format(kind, model, got, expect))
+
     # extract_model（代表性子集，完整回归在 herdr-status.py）
     model_cases = [
         ("codex", "› Ask Codex to do anything\n\n  GPT-6.1-Sol low · E:\\YX\\yx-e…\n  ← for agents", "GPT-6.1-Sol low"),
@@ -563,13 +614,13 @@ def selftest():
     fake = {
         "workspaces": [{"workspace_id": "w9", "label": "测试"}],
         "tabs": [
-            {"tab_id": "w9:t1", "label": "主视角 · X", "workspace_id": "w9"},
+            {"tab_id": "w9:t1", "label": "秘书 · X", "workspace_id": "w9"},
             {"tab_id": "w9:t2", "label": "测试部", "workspace_id": "w9"},
         ],
         "panes": ([{"pane_id": "w9:p{}".format(i), "workspace_id": "w9"} for i in range(1, 8)]
                   + [{"pane_id": "w9:p9", "workspace_id": "w9"}]),
         "agents": [
-            {"pane_id": "w9:p1", "agent": "claude", "workspace_id": "w9", "tab_id": "w9:t1"},  # 未命名 main
+            {"pane_id": "w9:p1", "agent": "claude", "workspace_id": "w9", "tab_id": "w9:t1"},  # 未命名 secretary
             {"pane_id": "w9:p2", "agent": "codex", "name": "dev-plan-codex", "workspace_id": "w9", "tab_id": "w9:t1"},
             {"pane_id": "w9:p3", "agent": "claude", "name": "planner", "workspace_id": "w9", "tab_id": "w9:t1"},
             {"pane_id": "w9:p4", "agent": "opencode", "name": "rename-tools", "workspace_id": "w9", "tab_id": "w9:t1"},
@@ -603,7 +654,7 @@ def selftest():
     if by_cat != want_cat:
         fails += 1
         print("FAIL audit_workspace 分类计数 = {} 期望 {}".format(by_cat, want_cat))
-    # p2 codex 统筹 GPT 合规 → 不应有模型违规
+    # p2 codex 策划 GPT 合规 → 不应有模型违规
     if any(f["category"] == "模型" and f["agent"] == "dev-plan-codex" for f in findings):
         fails += 1
         print("FAIL p2 dev-plan-codex 不应有模型违规")
@@ -705,14 +756,14 @@ def selftest():
     if fails:
         print("SELFTEST FAIL（{} 项）".format(fails))
         return 2
-    print("SELFTEST PASS（命名 / 统筹模型 / 5 种模型提取 / timeout / 全链路四项 / 采集错误三例 / 重复与一致性五例）")
+    print("SELFTEST PASS（命名 / 策划模型 / 5 种模型提取 / timeout / 全链路四项 / 采集错误三例 / 重复与一致性五例）")
     return 0
 
 
 def main(argv=None):
     _setup_stdio()
     ap = argparse.ArgumentParser(
-        description="只读审计指定 Herdr 工作区是否符合编排规范（命名/尺寸/容量/统筹模型）",
+        description="只读审计指定 Herdr 工作区是否符合编排规范（命名/尺寸/容量/策划模型）",
     )
     ap.add_argument("--workspace", metavar="ID", help="要审计的工作区（如 w4）")
     ap.add_argument("--timeout", type=_positive_float, default=DEFAULT_TIMEOUT,
@@ -765,7 +816,7 @@ def main(argv=None):
         print("小结：{}。".format(summary))
         return 1
 
-    print("通过：工作区 {}「{}」—— 命名/尺寸/容量/统筹模型 四项检查无违规。".format(args.workspace, ws_label))
+    print("通过：工作区 {}「{}」—— 命名/尺寸/容量/策划模型 四项检查无违规。".format(args.workspace, ws_label))
     return 0
 
 

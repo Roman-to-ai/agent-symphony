@@ -11,10 +11,10 @@ herdr **没有** tile / balance / auto-scale —— `pane split` 只会在现有
 
 用法
 ----
-    python -I herdr-layout.py --pane <root_pane_id> --count N [--mode grid|main]
+    python -I herdr-layout.py --pane <root_pane_id> --count N [--mode grid|secretary]
 
     --mode grid  （默认）2 列均衡排布 —— 部门页用
-    --mode main  main 占左半边，其余在右半边竖排 —— 主视角页用
+    --mode secretary  secretary 占左半边，其余在右半边竖排 —— 秘书页用
 
 输出：每行一个 pane_id（按位置从上到下、从左到右），调用方直接拿去 agent start。
 
@@ -24,14 +24,14 @@ herdr **没有** tile / balance / auto-scale —— `pane split` 只会在现有
     IDS=$(python -I herdr-layout.py --pane <root> --count 5 --mode grid)
     # → 打印 4 个新 pane_id；加上 <root> 一共 5 格
 
-    # 主视角页：main + 3 个统筹者 = 4 格
-    # ⚠️ --pane 必须是 **main 自己那个 pane**（$HERDR_PANE_ID）。
-    #    不要新开 tab 拿它的 root 当占位 —— 那是虚构的 main，用户看不到对话窗口。
-    IDS=$(python -I herdr-layout.py --pane "$HERDR_PANE_ID" --count 4 --mode main)
-    # → 打印 3 个 pane_id（右半边）；左半边就是你（main）
+    # 秘书页：secretary + 3 个策划者 = 4 格
+    # ⚠️ --pane 必须是 **secretary 自己那个 pane**（$HERDR_PANE_ID）。
+    #    不要新开 tab 拿它的 root 当占位 —— 那是虚构的 secretary，用户看不到对话窗口。
+    IDS=$(python -I herdr-layout.py --pane "$HERDR_PANE_ID" --count 4 --mode secretary)
+    # → 打印 3 个 pane_id（右半边）；左半边就是你（secretary）
 
 ⚠️ `--count` 是**总格数，含 `--pane` 指的那个根窗格**。
-   grid 模式返回 count-1 个；main 模式返回 count-1 个（左半边留给 main）。
+   grid 模式返回 count-1 个；secretary 模式返回 count-1 个（左半边留给 secretary）。
 """
 import argparse
 import json
@@ -93,8 +93,8 @@ def layout_grid(root, n):
     return left_rows[1:] + right_rows
 
 
-def layout_main(root, n):
-    """main 占左半边；右半边竖排 n 个。返回 n 个 pane_id。"""
+def layout_secretary(root, n):
+    """secretary 占左半边；右半边竖排 n 个。返回 n 个 pane_id。"""
     right_root = split(root, "right", 0.5)
     return split_rows(right_root, n)
 
@@ -123,7 +123,7 @@ def main():
     ap.add_argument("--pane", required=True, help="该 tab 的根 pane id")
     ap.add_argument("--count", type=int, required=True,
                     help="总格数（含 --pane 指的根窗格）")
-    ap.add_argument("--mode", choices=["grid", "main"], default="grid")
+    ap.add_argument("--mode", choices=["grid", "secretary"], default="grid")
     a = ap.parse_args()
 
     if a.count < 1:
@@ -131,8 +131,8 @@ def main():
 
     if a.mode == "grid":
         ids = layout_grid(a.pane, a.count)          # 返回 count-1 个新窗格
-    else:                                           # 根窗格留给 main
-        ids = layout_main(a.pane, a.count - 1) if a.count > 1 else []
+    else:                                           # 根窗格留给 secretary
+        ids = layout_secretary(a.pane, a.count - 1) if a.count > 1 else []
 
     ok = check_sizes(ids)
     for i in ids:

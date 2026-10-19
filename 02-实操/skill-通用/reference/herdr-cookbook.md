@@ -194,9 +194,12 @@ herdr agent attach <target> [--takeover]
 herdr agent start qa-java01-claude   --kind claude   --pane w4:p4 -- --dangerously-skip-permissions --model fable
 herdr agent start qa-tools01-opencode --kind opencode --pane w4:p6 -- --auto
 
-# 统筹者：档位跟着任务难度走（见正文 §2.0.1）
+# 策划者：档位跟着任务难度走（见正文 §2.0.1）
 herdr agent start dev-plan-claude --kind claude --pane w4:p2 -- --dangerously-skip-permissions          # T1 中等
 herdr agent start dev-plan-codex  --kind codex  --pane w4:p2 -- --dangerously-bypass-approvals-and-sandbox  # T2 大型
+
+# 组长：组级任务（单域拆给 worker），DS 档即可
+herdr agent start dev-group-claude --kind claude --pane w4:pX -- --dangerously-skip-permissions --model fable
 
 # 每个起完都把 pane 标签设成中文（§3.7）—— 中文只能进标签，不能进 agent 名
 herdr pane rename w4:p4 "测试部-java01-claude"
@@ -217,7 +220,7 @@ herdr pane rename w4:p4 "测试部-java01-claude"
   `--approve` 只是跳过项目信任提示。**别指望 Pi 会帮你把关。**
 - **安全网只剩任务书里的边界。** 派活时必须写死：不推根仓远程、不碰别人的 pane、
   不删无备份的东西、不确定就停下回报（正文 §5.3.2）。
-- **生产操作照样可以带这些参数**（用户要求别打断），但**必须先拿到 main 的 `[PROD-OK]`**
+- **生产操作照样可以带这些参数**（用户要求别打断），但**必须先拿到 secretary 的 `[PROD-OK]`**
   —— 授权协议见正文 §5.3.3。**免审批 ≠ 免授权**：一个管"要不要点确认"，一个管"允不允许做"。
 
 ---
@@ -377,8 +380,8 @@ $ herdr agent start rename-java --kind opencode --pane w3:p1
 
 | pane | kind | 名字 | 角色 |
 |---|---|---|---|
-| `w4:p1` | claude | （未命名） | main |
-| `w4:p2` | **codex** | **`planner`** | 统筹 |
+| `w4:p1` | claude | （未命名） | secretary |
+| `w4:p2` | **codex** | **`planner`** | 策划 |
 | `w4:p3` | claude | `rename-validation` | 验证 |
 | `w4:p4` | qodercli | `rename-java` | worker |
 | `w4:p5` | omp | `rename-resources` | worker |

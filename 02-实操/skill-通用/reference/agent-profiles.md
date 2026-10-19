@@ -109,7 +109,8 @@ gpt-6.1-sol          → gpt-6.1-sol               708 次   ← codex 是直通
 - 非交互模式 `-p/--print`，可接 `--output-format stream-json`
 
 **适合**
-- **T1 统筹**（拆解清楚、主要靠工具链把活串起来）
+- **T1 策划**（拆解清楚、主要靠工具链把活串起来）
+- **组级组长**（单域内拆给 worker、收口）
 - 需要 MCP 的活：浏览器自动化、Office 文档、远程机器
 - 需要再往下派子 agent 的活
 - 探索性、要来回试的工作
@@ -142,7 +143,7 @@ herdr agent start dev-plan-claude --kind claude --pane <id> -- \
 **审批两档**：`on-request` · `never`
 
 **适合**
-- **T2 统筹**（要拿主意、要裁决）
+- **T2 策划**（要拿主意、要裁决）
 - **任何需要"判断这算不算做对了"的活** —— 验证裁决
 - 代码评审：直接用 `codex review`，比自己写 prompt 让别的 agent 看更稳
 - 跨模块权衡、方案对比
@@ -195,23 +196,25 @@ opencode run --model deepseek/deepseek-flash "..."   # ✓ 只有 run 子命令�
 - 服务化：`serve` / `api` / `service` / `acp`（**可当 HTTP API 用**）
 
 **适合**
+- **组级组长**（已固定 v4-pro 档，够用；但不能随任务切档）
 - 探索性任务、用免费模型跑量大的低价值活
 - 需要「把 agent 当 HTTP API 调」的场合（`serve` / `api`）
 
 **不适合**
-- **需要按任务切档位的角色**（统筹 / 验证）—— 档位固定在配置里，起不了 `--model`；
+- **需要按任务切档位的角色**（策划 / 验证）—— 档位固定在配置里，起不了 `--model`；
   真要换只能改配置再重开。
 - 需要图片输入的任务 —— `deepseek-v4-pro` **只支持文本**；要图片得把 `model` 换成
   `deepseek/deepseek-flash`（它是 text + image）。
 
 ---
 
-## 2. 派活矩阵（统筹者照着挑）
+## 2. 派活矩阵（策划者照着挑）
 
 | 任务类型 | 首选 | 为什么 | 备选 |
 |---|---|---|---|
 | **定方案 / 裁决 / 判断"做对没"** | **codex** | 唯一 gpt-6.1-sol | claude `--model fable` |
-| **T1 统筹（拆解已清楚，主要是派活收口）** | **claude `--model fable`** | 工具链全 + DS 最强档 | codex |
+| **T1 策划（拆解已清楚，主要是派活收口）** | **claude `--model fable`** | 工具链全 + DS 最强档 | codex |
+| **组级组长（单域拆给 worker、收口）** | **claude `--model fable`** | 工具链全 + DS 档 | opencode（已固定 v4-pro） |
 | **代码评审** | **codex**（`codex review`） | 有专用非交互评审子命令 | claude `--model fable` |
 | **批量机械改（一批文件同一规则）** | **claude** | 工具链全，把「只改这些文件」写死即可 | opencode |
 | **边界明确的局部改动** | **claude** | 上下文够用、工具面全 | opencode |

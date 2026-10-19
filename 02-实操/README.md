@@ -88,7 +88,7 @@ test "${HERDR_ENV:-}" = 1 || echo "不在 Herdr 里 —— 不要执行 herdr �
 
 然后按顺序：
 
-1. **判档** —— T0（派 1 个 worker）/ T1（Claude Code 统筹）/ T2（Codex 统筹）
+1. **判档** —— T0（派 1 个 worker）/ 组级（派小组）/ T1（Claude Code 策划）/ T2（Codex 策划）
    - 例外：**一眼活**（一条命令出结果）自己做完并说明
 2. **派活** —— 起 agent 带免审批参数，起完**验模型**
 3. **委托** —— 用 `reference/templates.md` 的模板，四件事写全：
@@ -104,7 +104,7 @@ test "${HERDR_ENV:-}" = 1 || echo "不在 Herdr 里 —— 不要执行 herdr �
 |---|---|
 | `herdr-layout.py` | 要在 tab 里切规整网格（herdr 没有 balance / tile / auto-scale） |
 | `herdr-status.py` | 想看当前工作区的页面 / pane / agent / 状态 / 尺寸 / 模型 |
-| `herdr-audit.py` | 想检查命名、窗格尺寸、容量、统筹者模型是否符合协议 |
+| `herdr-audit.py` | 想检查命名、窗格尺寸、容量、策划者模型是否符合协议 |
 
 都支持 `--selftest`（`layout` 除外），纯标准库，可 `python -I` 直接跑。
 
@@ -128,7 +128,7 @@ test "${HERDR_ENV:-}" = 1 || echo "不在 Herdr 里 —— 不要执行 herdr �
 
 | 实操里的规则 | 理论依据（待作者补充） |
 |---|---|
-| main 只派活不干活 | 见 `../01-理论/` 第 3 章 3.1 |
+| secretary 只派活不干活 | 见 `../01-理论/` 第 3 章 3.1 |
 | T0/T1/T2 分级 | 第 5–6 章 |
 | 按档位分派 | 第四部分（第 7–8 章） |
 | 验证者与作者不同源 | 第 9 章 9.2 |

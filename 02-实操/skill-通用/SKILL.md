@@ -1,6 +1,6 @@
 ---
 name: herdr-orchestration
-description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）。⚠️ **main 只派活、不干活**：简单任务 → 派 1 个 worker；中等任务 → 派 **Claude Code(DS 档) 当 planner**；大型任务 → 派 **Codex(最强 GPT) 当 planner**。含分级判据（T0/T1/T2）、按能力档位分派、agent 命名规范（须为 [a-z][a-z0-9_-]{0,31}）、herdr 调用规范与交接模板，跨 Claude Code / Codex / OpenCode 通用。需要 HERDR_ENV=1。"
+description: "用 Herdr 编排多 agent 协作（secretary/planner/group/worker/verifier）。⚠️ **secretary 只派活、不干活**：简单任务 → 派 1 个 worker；组级任务 → 派 **小组（组长）**；中等任务 → 派 **Claude Code(DS 档) 当 planner**；大型任务 → 派 **Codex(最强 GPT) 当 planner**。含分级判据（T0/组级/T1/T2）、按能力档位分派、agent 命名规范（须为 [a-z][a-z0-9_-]{0,31}）、herdr 调用规范与交接模板，跨 Claude Code / Codex / OpenCode 通用。需要 HERDR_ENV=1。"
 ---
 
 # Herdr 多 Agent 编排协议
@@ -56,9 +56,10 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 | 你是 | 先读 |
 |---|---|
 | 还没决定要不要编排 | **§2.0 判档** |
-| 决定要编排了，但不确定 T1 还是 T2 | **§2.0.1（claude 统筹 vs codex 统筹）** |
-| `main` | §2.0 → §2.0.2（一眼活）→ §2.0.3 → §4 → §8 |
+| 决定要编排了，但不确定派 worker / 小组 / 策划哪层 | **§2.0 判档** |
+| `secretary`（秘书） | §2.0 → §2.0.2（一眼活）→ §2.0.3 → §4 → §8 |
 | `planner`（T1=claude / T2=codex） | §2 → §4 阶段②③ → §5.3.1 / §5.3.3 → §6 |
+| `group`（组长） | §2 组级档 → §6 → §8 |
 | 起完 agent 要确认模型对没对 | **§5.3.4** |
 | `worker` | §6（任务书要求）→ §8 |
 | `verifier` | §8 → `reference/templates.md` §3 |
@@ -67,55 +68,62 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 
 ## 1. 角色模型
 
-四个角色，各司其职。**同一个人可以顺序扮演多个角色，但不能同时**。
+五个角色，各司其职。**同一个人可以顺序扮演多个角色，但不能同时**。
 
 | 角色 | 谁来做 | 干什么 | 不干什么 |
 |---|---|---|---|
-| **main** | Claude Code | 接需求、**判档（§2.0）**、**派活**、向用户汇报（唯一出口） | **不亲自干活** —— 默认派 worker。唯一例外是"一眼活"（§2.0.2） |
-| **统筹**（planner） | **T1：Claude Code `--model fable`（→ deepseek-v4-pro）**<br>**T2：Codex（gpt-6.1-sol）** | 出方案 → 分派 → 收口 → 安排验证 → 裁决 → 汇总 | 不亲自写业务代码（除非任务极小且无人可派） |
+| **秘书**（secretary） | Claude Code | 和用户**讨论需求**、**判档（§2.0）**、**派活**（传话给策划/小组/worker）、向用户汇报（唯一出口） | **不亲自干活** —— 默认派 worker。唯一例外是"一眼活"（§2.0.2） |
+| **策划**（planner） | **T1：Claude Code `--model fable`（→ deepseek-v4-pro）**<br>**T2：Codex（gpt-6.1-sol）** | 出方案 → 分派（派小组/worker）→ 收口 → 安排验证 → 裁决 → 汇总 | 不亲自写业务代码（除非任务极小且无人可派） |
+| **小组**（group，组长） | DS 档 agent（`claude` fable / `opencode`） | 领一块**组级任务** → 拆给组内 worker → 收口 → 汇报 | 不跨组规划、不定全局验收标准（那是策划的） |
 | **worker**（执行） | Claude Code / OpenCode | 领到**边界清晰**的任务，干完交回**可验证的产物** | 不扩大范围、不替别人做决定 |
 | **verifier**（验证） | **与作者不同 kind 的 DS agent**（`claude`/`opencode`） | 按 planner 写好的验收标准独立复核，给**有证据的**结论 | 不修产物；**也不该是 codex**（见 §2.1） |
 
 ### 铁律
 
-0. **先判档（§2.0）。** 判档决定"派谁"，不是"main 干不干"。
-1. **main 不亲自干活。** 默认派 worker/planner 去做；**唯一例外是"一眼活"**（§2.0.2）。
-   保持 main 空闲，才能随时接新需求、随时向用户汇报。
-2. **main 是唯一对用户说话的 agent。** 其它角色**一律不直接找用户**。
-3. **同一个任务只能有一个统筹者**：T1 是 Claude Code 的 planner，T2 是 Codex 的 planner。
-   worker 不接"你看着办"这类任务——边界不清就退回去问。
+0. **先判档（§2.0）。** 判档决定"派谁"，不是"secretary 干不干"。
+1. **secretary 不亲自干活。** 默认派 worker/planner 去做；**唯一例外是"一眼活"**（§2.0.2）。
+   保持 secretary 空闲，才能随时接新需求、随时向用户汇报。
+2. **secretary 是唯一对用户说话的 agent。** 其它角色**一律不直接找用户**。
+3. **同一个任务只能有一个策划者**：T1 是 Claude Code 的 planner，T2 是 Codex 的 planner。
+   **一块组级任务只交给一个组长。** worker 不接"你看着办"这类任务——边界不清就退回去问。
 4. **verifier 必须与作者不同 kind。** 谁写的谁不验（同实现会重复同一个盲点）。
    **验证者用 DS agent，不是 codex** —— codex 的额度留给定标准与裁决。
-5. **能力优先，不等于"用满五个 agent"。** 只派适合的，没人适合就统筹者自己干。
+5. **能力优先，不等于"用满五个 agent"。** 只派适合的，没人适合就策划者/组长自己干。
+6. **能直达就直达，不硬套层级。** secretary 判档派 worker/小组/策划；策划分子任务派小组/worker；小组派 worker。
+7. **回报是主动的，不是被等的。** 每一层干完**主动 `agent prompt <上级>` 把结论推上去**；上级 `agent wait` + `agent read` **主动收**，别发完不管（§4 阶段⑧）。
 
 ---
 
 ## 2. 先分级，再分派
 
-> **核心原则：main 不干活，只派活。** 判档决定的是「派给谁」，不是「main 干不干」。
+> **核心原则：secretary 不干活，只派活。** 判档决定的是「派给谁」，不是「secretary 干不干」。
 > 唯一的例外是"一眼活"（§2.0.2）—— 起 agent 比直接做还慢的那种。
 
-### 2.0 三档：按任务规模选统筹者
+### 2.0 四档：按任务规模选"派活层级"
 
-| 档 | 判据 | 统筹者 | 执行者 |
+> 判档问的不是"派给哪个 model"，而是"这活**该派到哪一层**"：worker（单兵）、
+> 小组（组长带一组）、策划（全局规划）。**能直达就直达，不硬套层级。**
+
+| 档 | 判据 | 派给谁 | 执行者 |
 |---|---|---|---|
-| **T0 简单** | ① 一个 worker 一次能做完，**不需要拆**<br>② 改动 ≤ 3 个文件<br>③ 只读 / 查询 / 解释 | **无 —— main 直接派** | **1 个 worker** |
-| **T1 中等** | ① 要拆 **2–3** 个子任务<br>② **方案明确**（你能一遍写清每份任务书）<br>③ 子任务互不影响<br>④ 预计 30 分钟 – 2 小时 | **`planner` = Claude Code `--model fable`**（→ deepseek-v4-pro） | 2–3 worker（+ 按需 verifier） |
-| **T2 大型** | ① **≥3** 个子任务或依赖复杂<br>② 跨模块且**相互影响**<br>③ 要**拿主意**（方案不止一种）<br>④ 需**裁决**（方案冲突 / worker 结果冲突）<br>⑤ 预计 **> 2 小时** 或 **> 20 步**<br>⑥ 用户说「这个重要 / 别搞坏」 | **`planner` = Codex（最强 GPT 档）** | 2–4 worker + **verifier（必须）** |
+| **T0 简单** | ① 一个 worker 一次能做完，**不需要拆**<br>② 改动 ≤ 3 个文件<br>③ 只读 / 查询 / 解释 | **无 —— secretary 直接派** | **1 个 worker** |
+| **组级**（T0–T1 之间） | ① 一组**相关的** worker 能包圆<br>② **单部门 / 单域**，不用跨组规划<br>③ 组长能一遍把每份 worker 任务书写清 | **`group`（组长）= DS 档**（`claude` fable / `opencode`） | 组长 + 组内 2–3 worker |
+| **T1 中等** | ① 要拆 **2–3** 个子任务，可能**跨组**<br>② **方案明确**（你能一遍写清每份任务书）<br>③ 子任务互不影响<br>④ 预计 30 分钟 – 2 小时 | **`planner` = Claude Code `--model fable`**（→ deepseek-v4-pro） | 策划 → 小组 / 2–3 worker（+ 按需 verifier） |
+| **T2 大型** | ① **≥3** 个子任务或依赖复杂<br>② 跨模块且**相互影响**<br>③ 要**拿主意**（方案不止一种）<br>④ 需**裁决**（方案冲突 / worker 结果冲突）<br>⑤ 预计 **> 2 小时** 或 **> 20 步**<br>⑥ 用户说「这个重要 / 别搞坏」 | **`planner` = Codex（最强 GPT 档）** | 策划 → 小组 / 2–4 worker + **verifier（必须）** |
 
 **默认从 T0 开始。** 判据没命中就不要升级。
 
 > ⚠️ **T0 也派 worker，不自己干。** 起一个 worker 的固定开销（起 pane + 启动 + 交互）
-> 通常只有十几秒，换来的是 main 全程空闲 —— 能随时接新问题、随时汇报进度。
+> 通常只有十几秒，换来的是 secretary 全程空闲 —— 能随时接新问题、随时汇报进度。
 > 唯一例外见 §2.0.2。
 
 #### 2.0.1 为什么 T1 用 Claude Code、T2 用 Codex？
 
-统筹者的档位**跟着任务难度走**，不是"越强越好"：
+策划者的档位**跟着任务难度走**，不是"越强越好"：
 
-| | **T1 统筹 = Claude Code `--model fable`（→ deepseek-v4-pro）** | **T2 统筹 = Codex（gpt-6.1-sol）** |
+| | **T1 策划 = Claude Code `--model fable`（→ deepseek-v4-pro）** | **T2 策划 = Codex（gpt-6.1-sol）** |
 |---|---|---|
-| 统筹的性质 | **执行性协调**：拆解已经清楚，主要是派活、盯进度、收口、按模板校验产物 | **决策性统筹**：要在几种走法之间权衡、要裁决冲突、要判断"这算不算做对了" |
+| 策划的性质 | **执行性协调**：拆解已经清楚，主要是派活、盯进度、收口、按模板校验产物 | **决策性策划**：要在几种走法之间权衡、要裁决冲突、要判断"这算不算做对了" |
 | 适合 | 方案明确、子任务互不影响 | 方案有分歧、依赖复杂、风险高 |
 | 工具链 | 工具最全（skill / MCP / 子 agent），检查产物、跑验证命令更顺手 | 推理深度优先 |
 | **核心判据** | **你能一遍把每份任务书写清楚** | 写的时候**还在犹豫边界 / 依赖 / 先后** |
@@ -126,7 +134,7 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 
 **如果起 agent 比直接做还慢，就直接做。** 判据：**一条命令就出结果**。
 
-| 算"一眼活"，main 直接做 | 不算，要派 worker |
+| 算"一眼活"，secretary 直接做 | 不算，要派 worker |
 |---|---|
 | `netstat` 查端口、`tasklist` 查进程 | 要改文件 |
 | 读一个文件、`git status` / `git log` | 要跑构建 / 测试 |
@@ -135,28 +143,36 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 
 做完在汇报里说明「这条我自己查的」—— 让用户知道没走编排。
 
-#### 2.0.3 T0 / T1 的执行要点
+#### 2.0.3 T0 / 组级 / T1 的执行要点
 
-**T0（main 直接派 1 个 worker，不设 planner）**
+**T0（secretary 直接派 1 个 worker，不设 planner）**
 
 1. 开**部门页** tab（§5.2.1）→ 起 worker（§5.3，**带 §5.3.1 免审批参数**）→ 设中文标签
 2. 发自包含任务书（§6，抄 `templates.md` §2）—— **哪怕只有一个 worker，任务书也要自包含**
 3. `--wait` 收产物 + `agent read` 读回执 + 自己核一遍
 4. 汇报
 
-**T1（main 派 `dev-plan-claude`，由它再派 worker）**
+**组级（secretary 直接派 1 个小组，组长再派 worker）**
 
-1. **在 main 自己的 tab 里开统筹位**（§5.2.1，`--pane "$HERDR_PANE_ID"`）→
+1. 开**部门页** tab（§5.2.1）→ 起组长 `dev-group-claude --kind claude -- --dangerously-skip-permissions --model fable`
+   （或 `--kind opencode -- --auto`）→ 设标签
+2. 发**组级任务书**（§6，抄 `templates.md` §2，把「范围」写成**一整块组级边界**，让组长自己拆给 worker）
+3. 组长拆给组内 worker、收口、回报；你 `agent wait` + `agent read` 等回报，自己核一遍
+4. 汇报
+
+**T1（secretary 派 `dev-plan-claude`，由它再派小组 / worker）**
+
+1. **在 secretary 自己的 tab 里开策划位**（§5.2.1，`--pane "$HERDR_PANE_ID"`）→
    起 `dev-plan-claude --kind claude -- --dangerously-skip-permissions --model fable` → 设标签
-   （⚠️ **必须带 `--model fable`**，默认槽是 flash；**不要新开 tab 放「主控占位」**）
-2. 按 `templates.md` §1 给委托（四件事写全），**并注明「这是 T1：你来统筹」**
+   （⚠️ **必须带 `--model fable`**，默认槽是 flash；**不要新开 tab 放「秘书占位」**）
+2. 按 `templates.md` §1 给委托（四件事写全），**并注明「这是 T1：你来策划」**
 3. 等 planner 的汇总（§4 阶段⑦ 的格式，`agent wait` + `agent read`）
 4. 汇报（抄 `templates.md` §4 的三段式）
 
-> ⚠️ **T1 的 planner 是另一个 Claude Code agent，不是 main 自己。**
-> main 不兼任统筹 —— 保持空闲，才接得住用户的新问题。
+> ⚠️ **T1 的 planner 是另一个 Claude Code agent，不是 secretary 自己。**
+> secretary 不兼任策划 —— 保持空闲，才接得住用户的新问题。
 > 规范一条不省：§3 命名、§6 自包含任务书、§5.3.1 免审批参数。
-> §5.3.3 生产授权里，**`[PROD-OK]` 仍由 main 签发**，planner 只负责往下传。
+> §5.3.3 生产授权里，**`[PROD-OK]` 仍由 secretary 签发**，planner 只负责往下传。
 
 ### 2.1 能力档位与派活依据
 
@@ -169,8 +185,8 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 | agent | 档位 | 一句话 |
 |---|---|---|
 | **Codex** | ★ **最强 GPT**（`gpt-6.1-sol`） | 定方案、裁决、**代码评审**（专用的 `codex review`） |
-| **Claude Code** | DS 档（⚠️ **`--model fable` 才拿到 `deepseek-v4-pro`，默认槽是 flash**） | **T1 统筹**、工具链活（浏览器 / Office / 远程 MCP） |
-| **OpenCode** | DS（已固定 `deepseek-v4-pro`；⚠️ **交互模式不收 `--model`**，换档只能改配置） | 当 HTTP API 用（`serve`/`api`）、固定档位的常规活 |
+| **Claude Code** | DS 档（⚠️ **`--model fable` 才拿到 `deepseek-v4-pro`，默认槽是 flash**） | **T1 策划**、**组级组长**、工具链活（浏览器 / Office / 远程 MCP） |
+| **OpenCode** | DS（已固定 `deepseek-v4-pro`；⚠️ **交互模式不收 `--model`**，换档只能改配置） | **组级组长**、当 HTTP API 用（`serve`/`api`）、固定档位的常规活 |
 
 > ⛔ **可派活的只有这三个（`claude` / `codex` / `opencode`）。**
 > **Pi / OMP / qodercli 已停用**（2026-10-18）—— 软件还装着，但**不进任何阵容、不写进任务书**。
@@ -191,49 +207,56 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 > ⚠️ 模型与 MCP 配置**会变** —— 派活前用 `reference/agent-profiles.md` §4 的复验命令重查，
 > **别照抄本文**。
 
-### 2.2 分派判据（T1 / T2 内的统筹者用）
+### 2.2 分派判据（策划者 / 组长用）
 
-1. **这活需要"拿主意"吗？** → 需要：planner 自己干 或 派给 Codex 档。
-2. **这活是"照方案执行"吗？** → 是：派给 DS 档 worker。
-3. **有几个能独立完成、互不依赖的子任务？** → 有几个就开几个 worker。**串行能过就别并行**。
-4. **有没有哪个 agent 特别适合？** 例：需要 MCP / skill 能力 / 浏览器 / Office → Claude Code；要当 HTTP API 调 → OpenCode。
-5. **没人是明显更优的？** → 别为了"用上"而派。planner 自己干，或派给最闲的那个。
+**先决定派到哪一层，再决定派给哪个 agent：**
+
+1. **这个子任务，一个 worker 能搞定吗？** → 能：**直接派 1–2 个 worker**（别为派小组而派小组）。
+2. **要一组相关的 worker 协同、但还在一个域内吗？** → 是：**派一个小组（组长）**，让组长自己拆。
+3. **这活需要"拿主意"吗？** → 需要：策划者自己干，或派给 Codex 档。
+4. **这活是"照方案执行"吗？** → 是：派给 DS 档 worker。
+5. **有几个能独立完成、互不依赖的子任务？** → 有几个就开几个 worker。**串行能过就别并行**。
+6. **有没有哪个 agent 特别适合？** 例：需要 MCP / skill 能力 / 浏览器 / Office → Claude Code；要当 HTTP API 调 → OpenCode。
+7. **没人是明显更优的？** → 别为了"用上"而派。策划者/组长自己干，或派给最闲的那个。
 
 > ⚠️ **并行是有代价的**：多个 worker 改同一个仓库会互相踩。**同一文件/同一模块的任务必须串行或明确划分所有物**。
 
 ### 2.3 常见场景 → 档位与阵容
 
-| 场景 | 档 | 统筹者 | 阵容 |
+| 场景 | 档 | 派给谁 | 阵容 |
 |---|---|---|---|
-| 看端口 / 查进程 / 读一个文件 / `git status` | **一眼活** | — | **main 直接做**（§2.0.2） |
+| 看端口 / 查进程 / 读一个文件 / `git status` | **一眼活** | — | **secretary 直接做**（§2.0.2） |
 | 改一个 bug / 小重构 / 加个字段 | **T0** | — | 1 个 worker |
 | 解释代码、查资料（要多轮） | **T0** | — | 1 个 worker |
 | 跑测试 / 构建 / 批量重命名 / 全库扫描 | **T0** | — | 1 个 worker |
 | 写一份文档 / 整理资料 | **T0** | — | 1 个 worker |
-| **2–3 个模块的常规改动**（方案明确、互不影响） | **T1** | **claude** | planner + 2–3 worker |
-| **一批文件 / 表按同一规则批量改** | **T1** | **claude** | planner + 2–3 worker |
+| **一个模块内 2–3 个相关的改动**（单域、互不冲突） | **组级** | **组长（claude/opencode）** | 组长 + 2–3 worker |
+| **一批文件 / 表按同一规则批量改**（单域） | **组级** | **组长（claude/opencode）** | 组长 + 2–3 worker |
+| **2–3 个模块的常规改动**（方案明确、互不影响） | **T1** | **claude** | planner + 小组/2–3 worker |
 | **交付物机械生成**（改脚本跑出 xlsx/docx） | **T1** | **claude** | planner + 1–2 worker |
 | **小范围数据修补 / 补字段**（路径明确） | **T1** | **claude** | planner + 1–2 worker + verifier |
-| **跨模块重构 / 换框架 / 改名迁移** | **T2** | **codex** | planner + 2–3 worker + verifier |
+| **跨模块重构 / 换框架 / 改名迁移** | **T2** | **codex** | planner + 小组/2–3 worker + verifier |
 | **数据迁移 / ETL / 对账** | **T2** | **codex** | planner + worker + verifier（**逐条对数，不能只比行数**） |
 | **交付物生成但口径有分歧** | **T2** | **codex** | planner + worker + verifier |
 | **生产运维 / 发布** | **T2** | **codex** | planner + worker + verifier + **`[PROD-OK]`**（§5.3.3） |
 | **技术选型 / 多方案对比** | **T2** | **codex** | planner(codex) 主判 + 2 worker 分头调研 + verifier 交叉核 |
 
+> **拿不准组级还是 T1** → 问一句：**要不要跨组 / 跨域规划？** 不用 → 组级；要 → T1。
 > **拿不准 T1 还是 T2** → 用 §2.0.1 的判据：**你能一遍把每份任务书写清楚吗？**
-> 能 → T1（claude 统筹）；写的时候还在犹豫 → T2（codex 统筹）。
+> 能 → T1（claude 策划）；写的时候还在犹豫 → T2（codex 策划）。
 
 ### 2.4 升降级信号（干到一半发现判错了）
 
 **往上升：**
 
-- worker 回报"这个得拆成几块，一块做不完" → **T0 → T1**
+- worker 回报"这个得拆成几块，一块做不完" → **T0 → 组级**
+- 组长回报"这个跨到别的组了" / "得先定全局方案" → **组级 → T1**
 - 拆的时候发现**子任务互相影响** → **T1 → T2**
 - 干着干着发现**要拿主意**（不止一种走法） → **T1 → T2**，让 codex 定方案
 - 发现**错了不容易发现**（要人验才知道对不对） → 升一档，并加 verifier
 - 用户说"这个比较重要 / 别搞坏" → 直接上 **T2**
 
-**T1 → T2 的具体信号（换更强的统筹者）：**
+**T1 → T2 的具体信号（换更强的策划者）：**
 
 - 边界说不清（谁改哪块划不开）
 - 两个子任务的改动会互相影响
@@ -243,8 +266,9 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 **往下减：**
 
 - 拆完发现**只有一个子任务** → 退回 T0，**别起 planner**
+- 策划发现某块"一组 worker 就够、且不用跨组" → 那子任务降为**派一个组长**即可
 - 好几个 worker 都在等同一个文件 → 串行化，减少 agent 数
-- 子任务是"跑个命令看看" → 一眼活，main 直接做（§2.0.2）
+- 子任务是"跑个命令看看" → 一眼活，secretary 直接做（§2.0.2）
 
 > ⚠️ **降级不是失败。** 拆完发现不必拆，说明判得准；硬凑出几个 agent 才是浪费。
 
@@ -273,7 +297,7 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 |---|---|---|---|---|
 | **agent 名** | `<dept>-<name>-<kind>` | `qa-test01-claude` | 机器 | `[a-z][a-z0-9_-]{0,31}`，**≤32** |
 | **pane 标签** | `<部门中文>-<名称>-<kind>` | `测试部-test01-claude` | 人 | **无限制** |
-| **tab 标签** | 部门中文 / `<项目> · 主视角` | `测试部` | 人 | **无限制** |
+| **tab 标签** | 部门中文 / `<项目> · 秘书` | `测试部` | 人 | **无限制** |
 
 **长度预算**：`dept(2–4) + '-' + name(2–10) + '-' + kind(2–8)` → 最坏 24 字符，够用。
 
@@ -300,13 +324,14 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 
 | 角色 | agent 名 | pane 标签 |
 |---|---|---|
-| **main** | `main`（或省名，由用户直接开） | `主控` |
-| **统筹** | `<dept>-plan-<kind>`，如 `dev-plan-claude` | `<部门>-统筹-<kind>` |
+| **secretary** | `secretary`（或省名，由用户直接开） | `秘书` |
+| **策划** | `<dept>-plan-<kind>`，如 `dev-plan-claude` | `<部门>-策划-<kind>` |
+| **小组**（组长） | `<dept>-group-<kind>`，如 `dev-group-claude` | `<部门>-组长-<kind>` |
 | **worker** | `<dept>-<name>-<kind>`，如 `qa-test01-claude` | `<部门>-<名称>-<kind>` |
 | **verifier** | `<dept>-<name>-verify` | `<部门>-<名称>-验证` |
 
-> ⚠️ **多个任务并行时**统筹名会撞。用序号区分：`dev-plan1-claude` / `dev-plan2-claude`，
-> pane 标签写清是哪个任务（`开发部-统筹-重命名`）。
+> ⚠️ **多个任务并行时**策划/组长名会撞。用序号区分：`dev-plan1-claude` / `dev-plan2-claude`、
+> `dev-group1-claude`，pane 标签写清是哪个任务（`开发部-策划-重命名` / `开发部-组长-重命名`）。
 >
 > ⚠️ 老约定里的固定名 `planner`（本机 `w4` 在用）**已被本规范取代** —— 新起的统一按部门格式。
 
@@ -316,9 +341,10 @@ description: "用 Herdr 编排多 agent 协作（main/planner/worker/verifier）
 |---|---|---|
 | 测试部第 1 个 claude worker | `qa-test01-claude` | `测试部-test01-claude` |
 | 测试部第 2 个 opencode worker | `qa-test02-opencode` | `测试部-test02-opencode` |
-| 开发部的统筹 | `dev-plan-claude` | `开发部-统筹-claude` |
+| 开发部的策划 | `dev-plan-claude` | `开发部-策划-claude` |
+| 开发组的组长 | `dev-group-claude` | `开发组-组长-claude` |
 | 生产部的验证者 | `mfg-check01-verify` | `生产部-check01-验证` |
-| main | `main` | `主控` |
+| secretary | `secretary` | `秘书` |
 
 ### 3.7 起名时一次设两处
 
@@ -335,33 +361,34 @@ herdr pane rename <pane-id> "测试部-test01-claude"
 
 ## 4. 完整工作流
 
-> 📌 **下面这张图是 T1 / T2 的流程** —— 两者的差别**只在 planner 用哪个模型**：
+> 📌 **下面这张图是 T1 / T2（策划级）的流程** —— 两者的差别**只在 planner 用哪个模型**：
 > **T1 = `--kind claude`（DS 档）**，**T2 = `--kind codex`（最强 GPT）**。其余完全一样。
 >
-> **T0 没有 planner**：main 直接执行 ②③④⑤ 派给 **1 个 worker**，没有①⑦两步。
+> **T0 没有 planner**：secretary 直接派 **1 个 worker**。**组级也没有 planner**：secretary 直接派 **1 个组长**，组长再拆给 worker。
 
 ```
 用户
  │  提需求
  ▼
-main (Claude Code) ──────────────┐
- │  ① 复述需求 + 委托 + 指定档位  │ ⑥ 最终汇报（唯一出口）
+secretary (Claude Code) ──────────────┐
+ │  ① 复述需求 + 判档 + 委托      │ ⑥ 最终汇报（唯一出口）
  ▼                               │
 planner ◄────────────────────────┘
  │   T1: claude（DS）   T2: codex（最强 GPT）
  │  ② 出方案（写进文件，不只嘴上说）
- │  ③ 按能力分派 → 开 pane、起 worker、发任务
- │  ④ 收 worker 产物（等 done + 读回执）
+ │  ③ 按能力分派 → 开 pane、派小组 / worker、发任务
+ │       └─► 小组（组长）→ 拆给组内 worker → 收口回报
+ │  ④ 收产物（等 done + 读回执）
  │  ⑤ 安排 verifier（与作者不同源）→ 收验证结论
  │     └─ 不通过 → 回 ③ 让原作者或换人修 → 再验
  │  ⑦ 裁决 + 汇总
  ▼
-main ──► 用户
+secretary ──► 用户
 ```
 
-### 阶段 ① main 委托
+### 阶段 ① secretary 委托
 
-main **不拆任务**，只把"要什么"讲清楚。委托必须含四件事：
+secretary **不拆任务**，只把"要什么"讲清楚。委托必须含四件事：
 
 1. **目标**：要达成什么（可判定的）
 2. **验收标准**：怎么算做对了
@@ -377,10 +404,11 @@ main **不拆任务**，只把"要什么"讲清楚。委托必须含四件事：
 推荐落在项目里的临时目录，例如 `<项目>/.orchestration/<task>-plan.md`。
 方案至少写清：**拆成几个子任务 · 各自的验收标准 · 派给谁 · 为什么派给它 · 依赖顺序**。
 
-### 阶段 ③ planner 分派
+### 阶段 ③ planner 分派（派小组 / 派 worker）
 
-对每个子任务：
-1. **先判是不是生产操作**（判据见 §5.3.3 的表）。是 → **必须有 main 的 `[PROD-OK]`**，否则回问 main，不要派。
+对每个子任务，**先判派到哪一层**（§2.2）：一个 worker 能搞定 → 派 worker；要一组相关 worker 协同 → 派小组（组长）。
+
+1. **先判是不是生产操作**（判据见 §5.3.3 的表）。是 → **必须有 secretary 的 `[PROD-OK]`**，否则回问 secretary，不要派。
 2. `herdr pane split` 开一个 pane（见 §5.2）
 3. `herdr agent start <task>-<scope> --kind <kind> --pane <id> -- <免审批参数>`（见 §5.3、§5.3.1）
 4. `herdr pane rename` 设中文标签
@@ -412,7 +440,18 @@ planner 汇总时**必须区分三件事**：
 - **未验证/验证不通过的**（说明卡在哪）
 - **没做的**（说明为什么没派 —— 比如没有合适的 agent）
 
-然后 `herdr agent prompt main "..."` 把汇总发给 main。**main 再转述给用户，并如实转达 planner 说的"没做/没验"部分**，不许美化。
+然后 `herdr agent prompt secretary "..."` 把汇总发给 secretary。**secretary 再转述给用户，并如实转达 planner 说的"没做/没验"部分**，不许美化。
+
+### 阶段 ⑧ 回报协议（每一层都适用，★ 最容易断的环节）
+
+跨 agent 之间**没有自动通知** —— 只有「主动推」和「主动收」两条路。每一层都要遵守：
+
+1. **收到先 ack**：读完任务书，先回一句「收到，边界理解一致，N 分钟内开始」，再开工——让上级知道你接住了。
+2. **干完主动上报**：完成（或卡住）后，**主动 `herdr agent prompt <上级> "..."` 把结论推上去**，别把话写在自己 pane 里等别人翻。
+3. **上级主动收**：派完别撒手。`agent wait` + `agent read` 收回报，再**自己独立核一遍产物**（`--wait` 只证明"跑完一轮"，不证明"干对"）。
+4. **回报带证据**：三段式（已验证通过 / 验证不通过 / 没做），附命令 + 输出 + 文件:行。
+
+回报链：`worker → 小组/策划 → 策划 → secretary → 用户`，每一环都是「下级主动推 + 上级主动收」。
 
 ---
 
@@ -429,7 +468,7 @@ herdr --help | head -3          # 确认 CLI 版本（本机 0.9.5）
 
 **不在 Herdr 环境里就不要执行任何 herdr 命令。**
 
-### 5.1 拉起 planner
+### 5.1 拉起 planner / 组长
 
 ```bash
 herdr pane split --current --direction right --cwd "$PWD" --no-focus
@@ -442,11 +481,15 @@ herdr agent start dev-plan-claude --kind claude --pane <pane-id> -- \
 # T2（大型）→ codex（最强 GPT，默认就是 gpt-6.1-sol）
 herdr agent start dev-plan-codex  --kind codex  --pane <pane-id> -- --dangerously-bypass-approvals-and-sandbox
 
-herdr pane rename <pane-id> "统筹 · <任务名>"
+# 组级 → 组长用 DS 档（claude fable / opencode）
+herdr agent start dev-group-claude --kind claude --pane <pane-id> -- \
+  --dangerously-skip-permissions --model fable
+
+herdr pane rename <pane-id> "策划 · <任务名>"      # 组长则： "组长 · <任务名>"
 herdr agent prompt dev-plan-claude "<委托书>" --wait --timeout 300000
 ```
 
-> ⚠️ 委托里**必须写明档位**（"这是 T1 / T2"），planner 才知道自己该按哪套标准收口。
+> ⚠️ 委托里**必须写明档位**（"这是 T1 / T2 / 组级"），planner / 组长才知道自己该按哪套标准收口。
 
 ### 5.2 开 pane
 
@@ -459,7 +502,7 @@ herdr pane split --current --direction right --cwd "$PWD" --no-focus
 - **`--no-focus` 是默认选择**（除非用户明确要求切过去看）。
 - **`--cwd "$PWD"`** 保持和调用者同一工作目录，别让 worker 落在别处。
 
-#### 5.2.1 ★ 页面划分：**主视角页 + 部门页**
+#### 5.2.1 ★ 页面划分：**秘书页 + 部门页**
 
 **herdr 不会自动平铺** —— 没有 `balance` / `tile` / `auto-scale`，`config.toml` 也没有布局项。
 只有 `split --ratio`（切的时候定比例）和 `resize`（事后逐个调）。
@@ -469,43 +512,43 @@ herdr pane split --current --direction right --cwd "$PWD" --no-focus
 
 | 页面 | 放什么 | 上限 | tab 标签 |
 |---|---|---|---|
-| **主视角页** | **main 自己所在的 tab** + 各任务的**统筹者** | **1 + 3** | **main 那个 tab，不新建** |
-| **部门页**（每部门一个） | 该部门的 agent | **6** | 部门中文名（`测试部`） |
+| **秘书页** | **secretary 自己所在的 tab** + 各任务的**策划者** | **1 + 3** | **secretary 那个 tab，不新建** |
+| **部门页**（每部门一个） | 该部门的 agent（**组长 + worker**） | **6** | 部门中文名（`测试部`） |
 
-> ⚠️ **主视角页就是 main 自己所在的 tab —— 不要另建。**
+> ⚠️ **秘书页就是 secretary 自己所在的 tab —— 不要另建。**
 >
-> **main 不是"另起的占位 pane"**，它就是**发起编排的那个 agent 自己**，
+> **secretary 不是"另起的占位 pane"**，它就是**发起编排的那个 agent 自己**，
 > 也就是 `$HERDR_PANE_ID` 所指的那个 pane（用户正在对话的窗口）。
 >
-> ❌ **反例（踩过）**：新开一个 workspace → 新 tab → 把一个空 pane 标成「主控（占位）」，
-> 再把统筹者开在它旁边。那是**虚构的 main** —— 用户看不到真正的对话窗口，
-> 也违背"只有 main 对用户说话"。**main 只有一个，就是调用者。**
+> ❌ **反例（踩过）**：新开一个 workspace → 新 tab → 把一个空 pane 标成「秘书（占位）」，
+> 再把策划者开在它旁边。那是**虚构的 secretary** —— 用户看不到真正的对话窗口，
+> 也违背"只有 secretary 对用户说话"。**secretary 只有一个，就是调用者。**
 >
-> 正确做法：**在 main 自己的 pane 上 split**，统筹者开在它旁边。
+> 正确做法：**在 secretary 自己的 pane 上 split**，策划者开在它旁边。
 
-**主视角页的排法** —— main 占左半边，统筹者在右半边**竖排**：
+**秘书页的排法** —— secretary 占左半边，策划者在右半边**竖排**：
 
 ```
 132×45
 ┌──────────────┬──────────────┐
-│              │ 统筹1  66×15 │
+│              │ 策划1  66×15 │
 │              ├──────────────┤
-│  main 66×45  │ 统筹2  66×15 │
+│  secretary 66×45  │ 策划2  66×15 │
 │              ├──────────────┤
-│              │ 统筹3  66×15 │
+│              │ 策划3  66×15 │
 └──────────────┴──────────────┘
 ```
 
-- **统筹者 ≤3** → 同页（3 个时每格刚好 15 行，是下限）
-- **统筹者 >3** → **另开一页「统筹者」**，用 grid 模式排；主视角页只留 main
+- **策划者 ≤3** → 同页（3 个时每格刚好 15 行，是下限）
+- **策划者 >3** → **另开一页「策划者」**，用 grid 模式排；秘书页只留 secretary
 
-**怎么切（main 自己执行）**：
+**怎么切（secretary 自己执行）**：
 
 ```bash
-# 从 main 自己的 pane 出发 —— 注意是 --pane "$HERDR_PANE_ID"，不是新 tab 的 root
+# 从 secretary 自己的 pane 出发 —— 注意是 --pane "$HERDR_PANE_ID"，不是新 tab 的 root
 python -I .agents/skills/herdr-orchestration/tools/herdr-layout.py \
-  --pane "$HERDR_PANE_ID" --count 4 --mode main
-# 打印 3 个统筹位；左半边就是你（main）现在这个 pane
+  --pane "$HERDR_PANE_ID" --count 4 --mode secretary
+# 打印 3 个策划位；左半边就是你（secretary）现在这个 pane
 ```
 
 **部门页的排法** —— 2 列均衡：
@@ -528,10 +571,10 @@ python -I .agents/skills/herdr-orchestration/tools/herdr-layout.py \
 ```bash
 S=.agents/skills/herdr-orchestration/tools/herdr-layout.py
 
-# ── 主视角页：**就在 main 自己的 tab 里切，不新建 tab** ──
-# main + 3 个统筹者 = 4 格。左半边就是 $HERDR_PANE_ID 本身（你，main），
-# 打印出的 3 个是统筹位。
-COORD=$(python -I "$S" --pane "$HERDR_PANE_ID" --count 4 --mode main)
+# ── 秘书页：**就在 secretary 自己的 tab 里切，不新建 tab** ──
+# secretary + 3 个策划者 = 4 格。左半边就是 $HERDR_PANE_ID 本身（你，secretary），
+# 打印出的 3 个是策划位。
+COORD=$(python -I "$S" --pane "$HERDR_PANE_ID" --count 4 --mode secretary)
 
 # ── 部门页：测试部 5 个 agent（共 5 格）──
 JSON=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" \
@@ -569,7 +612,7 @@ herdr agent start <task>-<scope> --kind <claude|codex|opencode> --pane <pane-id>
 #### 5.3.1 ★ 起 agent 时**默认开高权限**（否则会一直卡在确认框）
 
 用户的明确要求：**干活的 agent 不要老弹审批**。所以起 **worker / verifier** 时一律带上免审批参数。
-（`planner` 是统筹、通常只读方案，但也建议带上，免得它卡在确认框上。）
+（`planner` 是策划、通常只读方案，但也建议带上，免得它卡在确认框上。）
 
 | kind | 免审批参数（放在 `--` 之后） | 说明 |
 |---|---|---|
@@ -598,7 +641,7 @@ herdr agent start qa-test01-opencode --kind opencode --pane w4:p4 -- --auto
 
 免审批 ≠ 没有规矩。这几条**写进每一份任务书**：
 
-- ⚠️ **生产环境可以动，但必须拿到 main 的显式授权** —— 见 §5.3.3。
+- ⚠️ **生产环境可以动，但必须拿到 secretary 的显式授权** —— 见 §5.3.3。
   **没有 `[PROD-OK]` 就等于没授权**，worker 不得自行执行，planner 也不得自行批准。
 - ❌ **根仓 `E:\XY` 永不推远程**（这是用户定死的，不属于"生产"范畴，**授权也不能推翻**）。
   其它仓的 `git push` 视同生产操作，同样需要 §5.3.3 的授权。
@@ -608,35 +651,35 @@ herdr agent start qa-test01-opencode --kind opencode --pane w4:p4 -- --auto
 
 #### 5.3.3 ★ 生产操作授权协议
 
-> 用户口径：**生产可以动，但得 main 明确才可以。**
+> 用户口径：**生产可以动，但得 secretary 明确才可以。**
 > 目的：既不让 worker 卡在确认框上，也不让某个 worker 自己一拍脑袋改生产。
 
-**唯一有权授权的角色：`main`。** planner 不能自批，worker 不能自批。
+**唯一有权授权的角色：`secretary`。** planner 不能自批，worker 不能自批。
 
-**授权必须是一条固定格式的文本**，由 main 发给 planner：
+**授权必须是一条固定格式的文本**，由 secretary 发给 planner：
 
 ```
-[PROD-OK] env=<环境> action=<动作> target=<对象> at=<YYYY-MM-DD HH:MM> by=main
+[PROD-OK] env=<环境> action=<动作> target=<对象> at=<YYYY-MM-DD HH:MM> by=secretary
 ```
 
 例：
 
 ```
-[PROD-OK] env=元芯ERP生产 action=重启后端Pod target=ns yuanxin-erp-hg deploy/erp-hg-backend at=2026-10-17 10:30 by=main
+[PROD-OK] env=元芯ERP生产 action=重启后端Pod target=ns yuanxin-erp-hg deploy/erp-hg-backend at=2026-10-17 10:30 by=secretary
 ```
 
 **规则（照做，别变通）**：
 
 1. **没有 `[PROD-OK]` 一行 → 不派、不做。** planner 收到生产类任务时，先检查委托里有没有这一行；
-   没有就回问 main，**不要自己判断"这个改动很小应该没事"**。
+   没有就回问 secretary，**不要自己判断"这个改动很小应该没事"**。
 2. **planner 派发时把这一行原样抄进 worker 的任务书。** worker **只认这一行**，
    不认"planner 说可以"、更不认"看起来很安全"。
 3. **一次授权只覆盖一次操作。** `env` / `action` / `target` 任何一项变了都要**重新授权**。
    批量操作要在 `action` 里写清范围（如 `action=批量更新表X的Y列`）。
 4. **授权不是常开开关。** 任务完成、失败、或超过 1 小时即失效，再动要重新要。
-5. **main 负责判断"用户是不是真的授权了这件事"**：
+5. **secretary 负责判断"用户是不是真的授权了这件事"**：
    - 用户的一般性表态（"可以动生产"）**不等于**对某次具体操作的授权；
-   - 除非用户对**这次任务**明确说过"你看着办/不用再问"，否则 main 应**先向用户确认一次**，
+   - 除非用户对**这次任务**明确说过"你看着办/不用再问"，否则 secretary 应**先向用户确认一次**，
      拿到确认后再发 `[PROD-OK]`。
 
 **什么算"生产"（判据，避免扯皮）**：
@@ -672,10 +715,10 @@ herdr agent read <name> --source visible --lines 6
 
    | 状态行显示 | 实际后端 |
    |---|---|
-   | `[Fable 5 (1M context)]` | ★ `deepseek-v4-pro` ← **T1 统筹要的** |
+   | `[Fable 5 (1M context)]` | ★ `deepseek-v4-pro` ← **T1 策划 / 组级组长要的** |
    | `[Opus 5 …]` / `[Sonnet 5 …]` / `[Haiku …]` | `deepseek-flash` ← 默认槽，**不是 v4-pro** |
 
-   **看到 `Opus 5` 就说明你起了个 flash 档的统筹者** —— 忘了带 `--model fable`。
+   **看到 `Opus 5` 就说明你起了个 flash 档的策划者/组长** —— 忘了带 `--model fable`。
 
    > 想**确认映射本身没变**（而不是只看界面显示），三层证据：
    > `~/.claude/settings.json` 的 `ANTHROPIC_DEFAULT_*_MODEL_NAME`（静态）→
@@ -793,11 +836,16 @@ herdr agent list     # 只确认谁还在，别关
 【验收标准】<可判定：跑什么命令、看什么输出、比对什么数字>
 【边界】不许改 <路径/表/系统>；不确定就停下来回报，不要自己决定
 【产出】<改哪些文件 / 生成什么报告 / 写到哪里>
-【回报格式】干完请输出：① 改了什么（文件:行）② 怎么自证的（命令+输出）③ 没做的和原因
+【确认】接到任务先回一句「收到，边界理解一致，N 分钟内开始」
+【回报对象】干完（或卡住）用 `herdr agent prompt <上级> "..."` 主动推给 <上级名>
+【回报格式】① 改了什么（文件:行）② 怎么自证的（命令+输出）③ 没做的和原因
 ```
 
 > ⚠️ **`AGENTS.md` 只在 worker 的 cwd 落在含它的目录时才自动加载。** worker 起在别的项目目录时读不到。
 > **所以：任务书自包含是硬要求，不能指望它自己去看 skill。**
+
+> 📌 **组长也一样**：组长领到的**组级任务书**把「范围」写成**一整块组级边界**（而不是具体到每个 worker），
+> 它再照着拆给组内 worker —— worker 任务书仍用同一套自包含模板。
 
 ---
 
@@ -811,10 +859,10 @@ herdr agent list     # 只确认谁还在，别关
 | 4 | **不看 `blocked` 就继续等** | `blocked` = 它在等你批准某个操作。`agent read` 看清是什么，**涉及权限/破坏性操作要问用户**，别自己代批 |
 | 4.5 | **起 agent 时忘了带免审批参数** | 症状：agent 干两步就 `blocked`，要人一个个点确认。**每个 kind 都要带 §5.3.1 的参数** |
 | 4.6 | **worker 自己判断"这个改动很小，不算生产"** | 不准判。**判据统一在 §5.3.3 的表**里；表里算生产就必须有 `[PROD-OK]`，拿不准按生产办 |
-| 4.7 | **planner 拿"main 之前同意过"当授权** | 授权**一次一用、限定 `env/action/target`**，换一项就失效。口头的"可以动生产"不是 `[PROD-OK]` |
+| 4.7 | **planner 拿"secretary 之前同意过"当授权** | 授权**一次一用、限定 `env/action/target`**，换一项就失效。口头的"可以动生产"不是 `[PROD-OK]` |
 | 5 | **多个 worker 改同一个文件** | 互相覆盖。**同文件/同模块的任务串行**，或在任务书里划清"你只改 A，他改 B" |
 | 6 | **让作者自己验** | 同源偏差，等于没验。**verifier 必须换人** |
-| 7 | **循环切 pane 切出窄条** | ⚠️ 会连带毁掉 §5.3.4 的验模型（状态行被截断）。**容量上限：主视角页 ≤4（1 main + 3 统筹）· 部门页 ≤6 · 每个 pane ≥60×15**；再多就分页（§5.2.1） |
+| 7 | **循环切 pane 切出窄条** | ⚠️ 会连带毁掉 §5.3.4 的验模型（状态行被截断）。**容量上限：秘书页 ≤4（1 secretary + 3 策划）· 部门页 ≤6 · 每个 pane ≥60×15**；再多就分页（§5.2.1） |
 | 8 | **乱关 pane** | 只关本次编排自己开的。`--group` 之类会连带关掉别的，**不要为了绕过报错而加** |
 | 9 | **以为 worker 知道全局** | 见 §6。任务书不自包含 = 让它猜 |
 | 10 | **`herdr` 裸跑** | 会启动/附上 TUI，把当前会话搞乱。**永远带子命令** |
@@ -830,10 +878,11 @@ herdr agent list     # 只确认谁还在，别关
 
 ## 8. 给各角色的最小清单
 
-### 如果你是 main
-- [ ] **先判档（§2.0）**：T0 / T1 / T2。**例外是"一眼活"**（§2.0.2）—— 一条命令出结果的，
+### 如果你是 secretary
+- [ ] **先判档（§2.0）**：T0 / 组级 / T1 / T2。**例外是"一眼活"**（§2.0.2）—— 一条命令出结果的，
       自己做完、汇报时说明一句
 - [ ] **T0**：起 **1 个 worker**（带 §5.3.1 免审批参数）→ **验模型（§5.3.4）** → 发自包含任务书 → 收产物 + **自己核一遍** → 汇报
+- [ ] **组级**：起 **1 个组长**（`dev-group-claude`，DS 档）→ 发**组级任务书** → 等组长回报 → 自己核一遍 → 汇报
 - [ ] **T1**：起 `dev-plan-claude --kind claude -- --dangerously-skip-permissions --model fable` →
       **验状态行必须是 `Fable`（Opus/Sonnet 都是 flash 档）** → 按 `templates.md` §1 委托 → 等汇总 → 汇报
 - [ ] **T2**：起 `dev-plan-codex --kind codex` → 按 `templates.md` §1 委托（**注明这是 T2**）→ 等汇总 → 汇报
@@ -841,25 +890,37 @@ herdr agent list     # 只确认谁还在，别关
 - [ ] **涉及生产时：判断用户是否真的授权了这次操作，然后签 `[PROD-OK]`**（§5.3.3）；
       拿不准就先问用户
 - [ ] 如实转述给用户，**包括"没做/没验"的部分**（模板：`reference/templates.md` §4）
+- [ ] **派完别撒手**：`agent wait` + `agent read` 主动收回报，自己核一遍再向用户汇报
 
 ### 如果你是 planner
 - [ ] 方案落文件（§2 阶段②），别只在对话里说
+- [ ] 每个子任务**先判派小组还是派 worker**（§2.2），再写任务书
 - [ ] 每个子任务：**适合谁 + 为什么 + 验收标准**写进任务书
-- [ ] **生产类任务：确认委托里有 `[PROD-OK]`；没有就回问 main，不要自己批**（§5.3.3）
+- [ ] **生产类任务：确认委托里有 `[PROD-OK]`；没有就回问 secretary，不要自己批**（§5.3.3）
 - [ ] **起每个 agent 时带上 §5.3.1 的免审批参数**（否则会一直卡确认框）
 - [ ] **起完逐个验模型**（§5.3.4）—— 对不上就重起，别带着错档往下跑
 - [ ] 任务书自包含（§6），并写死 §5.3.2 的硬边界；生产任务把 `[PROD-OK]` 原样抄进去
 - [ ] 收产物要三件齐（§5.5）
 - [ ] 派 **别的** agent 验证（作者不验）
 - [ ] 汇总里区分"已验证 / 未通过 / 没做"
+- [ ] **派完主动收**（`agent wait` + `agent read` 逐个收）；**汇总后主动 `agent prompt secretary` 推给秘书**
+
+### 如果你是小组（组长）
+- [ ] 只在组级任务书划定的范围内动手，**不跨组、不定全局标准**
+- [ ] 把组级任务拆给组内 worker（worker 任务书自包含，§6）
+- [ ] **生产操作：任务书里没有 `[PROD-OK]` 就不做**，回问派你来的策划 / secretary（§5.3.3）
+- [ ] 收组内 worker 产物（三件齐，§5.5），汇总后回报上级
+- [ ] **收到先 ack**；**干完主动 `agent prompt <上级>` 推结论**；派 worker 后主动收
+- [ ] 不确定就停下回报，**别自己扩大范围**
 
 ### 如果你是 worker
 - [ ] 只在任务书划定的范围内动手
-- [ ] **生产操作：任务书里没有 `[PROD-OK]` 就不做**，回问 planner（§5.3.3）
+- [ ] **生产操作：任务书里没有 `[PROD-OK]` 就不做**，回问 planner / 组长（§5.3.3）
+- [ ] **收到先 ack**；**干完（或卡住）主动 `agent prompt <上级>` 推结论**，别只写在自己 pane 里
 - [ ] 不确定就停下回报，**别自己扩大范围**
 - [ ] 按任务书要求的格式回报，**带上自证命令与输出**
 
 ### 如果你是 verifier
 - [ ] 拿任务书里的**验收标准**逐条判
 - [ ] 输出**逐条通过/不通过 + 证据**（命令、输出、文件:行）
-- [ ] **不修产物** —— 发现问题回报给 planner
+- [ ] **不修产物** —— 发现问题**主动 `agent prompt planner` 推结论**

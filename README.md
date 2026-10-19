@@ -68,7 +68,7 @@ powershell -NoProfile -Command "New-Item -ItemType Junction `
 
 ### 3.3 跑第一个任务
 
-1. **判档** —— T0（派 1 个 worker）/ T1（Claude 统筹）/ T2（Codex 统筹）
+1. **判档** —— T0（派 1 个 worker）/ 组级（派小组）/ T1（Claude 策划）/ T2（Codex 策划）
 2. **派活** —— 起 agent 带免审批参数，起完**验模型**
 3. **委托** —— 目标 / 验收标准 / 边界 / 回报要求，四件事写全
 4. **验证** —— 验证者必须与作者**不同 kind**
@@ -80,7 +80,7 @@ powershell -NoProfile -Command "New-Item -ItemType Junction `
 
 | 原则 | 为什么 |
 |---|---|
-| **main 只派活、不干活** | 保持空闲，才接得住新需求、才随时能汇报 |
+| **secretary 只派活、不干活** | 保持空闲，才接得住新需求、才随时能汇报 |
 | **按能力档位分派，不用满所有人** | 稀缺模型做判断，普通模型做执行 |
 | **验证者与作者不同源** | 换 kind 就换了实现和工具链，能覆盖大部分盲点 |
 | **任务收口 ≠ 关闭 agent** | 活着的 agent 握着上下文，用户追问一句就够；关了要重读重推导 |
@@ -142,7 +142,7 @@ agent-symphony/
 | 要开始跑任务 | `02-实操/skill-通用/SKILL.md` §5 → `reference/templates.md` |
 | 要派活但不确定派给谁 | `02-实操/skill-通用/reference/agent-profiles.md` §2 派活矩阵 |
 | 报错 / 卡住 | `02-实操/skill-通用/reference/herdr-cookbook.md` |
-| 用 Claude Code 当统筹 | `02-实操/skill-claude/SKILL.md` §2.1 + §5 |
+| 用 Claude Code 当策划 | `02-实操/skill-claude/SKILL.md` §2.1 + §5 |
 | 想理解「为什么」 | `01-理论/多Agent协作-理论大纲.md` |
 
 ---
